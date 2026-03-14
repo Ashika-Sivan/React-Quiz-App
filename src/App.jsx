@@ -75,6 +75,11 @@ function App() {
     setAnswers(Array(TOTAL_QUESTIONS).fill(null));
   };
 
+  const handleBackToStart = () => {
+    setQuizStarted(false);
+    setQuizOver(false);
+  };
+
   if (!quizStarted) {
     return (
       <div className="quiz-container">
@@ -126,9 +131,14 @@ function App() {
             </ul>
           </div>
 
-          <button className="btn-primary" onClick={handleStart}>
-            Play Again
-          </button>
+          <div className="results-actions">
+            <button type="button" className="btn-secondary" onClick={handleBackToStart}>
+              Back to front page
+            </button>
+            <button className="btn-primary" onClick={handleStart}>
+              Play Again
+            </button>
+          </div>
         </div>
       </div>
     );
