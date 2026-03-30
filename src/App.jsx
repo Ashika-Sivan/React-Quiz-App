@@ -1,18 +1,24 @@
 import { useState, useEffect, useCallback } from "react";
-import { QUIZ_DATA, TOTAL_QUESTIONS, TIME_PER_QUESTION, MAX_SCORE } from "./data/quizData";
+import { TOTAL_QUESTIONS, TIME_PER_QUESTION, MAX_SCORE } from "./data/quizData";
+import { fetchQuizQuestions } from "./services/quizApi";
 import "./App.css";
+
+const API_KEY = import.meta.env.VITE_QUIZAPI_KEY;
 
 function App() {
   const [quizStarted, setQuizStarted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [questions, setQuestions] = useState([]);
   const [score, setScore] = useState(MAX_SCORE);
   const [timeLeft, setTimeLeft] = useState(TIME_PER_QUESTION);
   const [answered, setAnswered] = useState(false);
   const [quizOver, setQuizOver] = useState(false);
   // Per-question result: null | 'correct' | 'wrong' | 'timeout'
   const [answers, setAnswers] = useState(() => Array(TOTAL_QUESTIONS).fill(null));
+  const [loadingQuestions, setLoadingQuestions] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
-  const currentQuestion = QUIZ_DATA[currentIndex];
+  const currentQuestion = questions[currentIndex];
 
   const advanceQuestion = useCallback(() => {
     if (currentIndex >= TOTAL_QUESTIONS - 1) {
@@ -50,6 +56,8 @@ function App() {
 
   const handleSelectOption = (optionIndex) => {
     if (answered) return;
+    if (!currentQuestion) return;
+
     setAnswered(true);
 
     const isCorrect = optionIndex === currentQuestion.correctIndex;
@@ -65,20 +73,62 @@ function App() {
     setTimeout(advanceQuestion, 400);
   };
 
-  const handleStart = () => {
-    setQuizStarted(true);
-    setCurrentIndex(0);
-    setScore(MAX_SCORE);
-    setTimeLeft(TIME_PER_QUESTION);
-    setAnswered(false);
+  const handleStart = useCallback(async () => {
+    // Reset quiz view while we fetch new questions.
+    setQuizStarted(false);
     setQuizOver(false);
-    setAnswers(Array(TOTAL_QUESTIONS).fill(null));
-  };
+    setQuestions([]);
+    setCurrentIndex(0);
+    setAnswered(false);
+    setLoadError(null);
+
+    setLoadingQuestions(true);
+
+    if (!API_KEY) {
+      setLoadingQuestions(false);
+      setLoadError(
+        "QuizAPI key is missing. Add `VITE_QUIZAPI_KEY` to `quiz-app/.env.local`."
+      );
+      return;
+    }
+
+    try {
+      const fetched = await fetchQuizQuestions(API_KEY, TOTAL_QUESTIONS);
+
+      setQuestions(fetched);
+      setQuizStarted(true);
+      setCurrentIndex(0);
+      setScore(MAX_SCORE);
+      setTimeLeft(TIME_PER_QUESTION);
+      setAnswered(false);
+      setQuizOver(false);
+      setAnswers(Array(TOTAL_QUESTIONS).fill(null));
+    } catch (e) {
+      setLoadError(e?.message ?? "Failed to load quiz questions.");
+    } finally {
+      setLoadingQuestions(false);
+    }
+  }, []);
 
   const handleBackToStart = () => {
     setQuizStarted(false);
     setQuizOver(false);
+    setQuestions([]);
+    setCurrentIndex(0);
+    setAnswered(false);
+    setLoadError(null);
   };
+
+  if (loadingQuestions) {
+    return (
+      <div className="quiz-container">
+        <div className="quiz-card start-screen">
+          <h1>Loading</h1>
+          <p>{TOTAL_QUESTIONS} questions are being loaded…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!quizStarted) {
     return (
@@ -86,8 +136,11 @@ function App() {
         <div className="quiz-card start-screen">
           <h1>Quiz Challenge</h1>
           <p>{TOTAL_QUESTIONS} questions · 60 seconds per question</p>
-          <p className="rules">Wrong answer or no answer in time = −1 point. Total score: {MAX_SCORE}.</p>
-          <button className="btn-primary" onClick={handleStart}>
+          <p className="rules">
+            Wrong answer or no answer in time = −1 point. Total score: {MAX_SCORE}.
+          </p>
+          {loadError ? <p className="nice-try-message">{loadError}</p> : null}
+          <button className="btn-primary" onClick={handleStart} disabled={loadingQuestions}>
             Start Quiz
           </button>
         </div>
@@ -108,7 +161,9 @@ function App() {
           ) : (
             <>
               <p className="nice-try-message">Nice try! Go try again.</p>
-              <p className="results-sub">Check your score and the correct answers below.</p>
+              <p className="results-sub">
+                Check your score and the correct answers below.
+              </p>
             </>
           )}
           <div className="score-display">
@@ -119,12 +174,20 @@ function App() {
           <div className="answers-list">
             <h3>Questions & correct answers</h3>
             <ul>
-              {QUIZ_DATA.map((q, i) => (
+              {questions.map((q, i) => (
                 <li key={q.id} className={`answer-item answer-${answers[i] ?? "timeout"}`}>
-                  <span className="answer-q">{i + 1}. {q.question}</span>
-                  <span className="answer-correct">Correct: {q.options[q.correctIndex]}</span>
+                  <span className="answer-q">
+                    {i + 1}. {q.question}
+                  </span>
+                  <span className="answer-correct">
+                    Correct: {q.options[q.correctIndex]}
+                  </span>
                   <span className={`answer-badge ${answers[i] ?? "timeout"}`}>
-                    {answers[i] === "correct" ? "✓ Correct" : answers[i] === "wrong" ? "✗ Wrong" : "⏱ Time out"}
+                    {answers[i] === "correct"
+                      ? "✓ Correct"
+                      : answers[i] === "wrong"
+                        ? "✗ Wrong"
+                        : "⏱ Time out"}
                   </span>
                 </li>
               ))}
@@ -157,10 +220,10 @@ function App() {
           </div>
         </div>
 
-        <h2 className="question-text">{currentQuestion.question}</h2>
+        <h2 className="question-text">{currentQuestion?.question}</h2>
 
         <div className="options-grid">
-          {currentQuestion.options.map((option, idx) => (
+          {(currentQuestion?.options ?? []).map((option, idx) => (
             <button
               key={idx}
               className="option-btn"
